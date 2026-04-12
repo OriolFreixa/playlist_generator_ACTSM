@@ -1,0 +1,43 @@
+Point 1 implementation decisions
+
+This note records implementation choices made while developing point 1. It is meant to complement the PDF, not repeat the deliverables already requested there.
+
+1. Audio traversal
+- Audio files are discovered recursively from the input folder with a fixed set of supported extensions.
+- Results are processed in sorted path order to keep runs deterministic.
+
+2. Internal audio representations
+- The script keeps multiple resampled mono versions of each track in memory so feature extractors do not need to resample independently.
+- 44.1 kHz mono is used for rhythm and key estimation.
+- 16 kHz mono is used for Discogs-Effnet embeddings and downstream Essentia classifiers.
+- 48 kHz mono is used for LAION-CLAP embeddings.
+
+3. Tempo method choice
+- Tempo is currently computed with Essentia's `RhythmExtractor2013` using the `multifeature` method.
+- `TempoCNN` was left out of the first implementation because `RhythmExtractor2013` has a simpler setup and does not require an additional model download. They both required extra resampling 
+(neither worked on 48 or 16 kHz)).
+
+4. Loudness handling
+- `LoudnessEBUR128` expects stereo input.
+- When the original file is mono, the mono signal is duplicated into two channels before loudness computation.
+
+5. Track-level pooling
+- Model-based embeddings and classifier outputs are pooled over time with a simple mean operation to produce one result per track.
+- This applies to Discogs-Effnet embeddings, music-style activations, voice/instrumental outputs, danceability outputs, and CLAP embeddings.
+
+6. Output format
+- The exported table contains one row per audio file.
+- Nested outputs such as dictionaries and embedding vectors are serialized as JSON strings inside CSV cells.
+- If no output path is passed in the command line, the CSV is printed to standard output.
+
+7. Model file resolution
+- Essentia model files are expected in `./models/` by default.
+- This can be overridden with `ESSENTIA_MODELS_DIR`.
+- The CLAP checkpoint is also expected in `./models/` by default and can be overridden with `CLAP_CHECKPOINT_PATH`.
+
+8. Dependency choice
+- The project uses `essentia-tensorflow` instead of plain `essentia` because the TensorFlow prediction operators are required by the Discogs-Effnet and classifier models.
+- Python 3.10 is the recommended environment target for better compatibility across Essentia, PyTorch, and audio-model dependencies.
+
+9. Code organization
+- Feature extraction logic was separated into `feature-extraction.py`.

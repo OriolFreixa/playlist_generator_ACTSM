@@ -1,3 +1,6 @@
-essentia
+essentia-tensorflow
 laion-clap
+torch
+torchaudio
+torchvision
 tqdm

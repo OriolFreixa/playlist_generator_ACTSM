@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import importlib.util
+import json
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+import essentia
 from essentia.standard import AudioLoader, MonoMixer, Resample
 import laion_clap  # Imported now so the dependency is wired and ready for later use.
 from tqdm import tqdm
+
+
+essentia.log.warningActive = False
 
 
 AUDIO_EXTENSIONS = {
@@ -47,6 +54,7 @@ feature_extraction = _load_feature_extraction_module()
 class LoadedAudio:
     path: Path
     original_sample_rate: int
+    number_channels: int
     audio_stereo: list[float]
     audio_mono: list[float]
     audio_44_1khz: list[float]
@@ -73,10 +81,10 @@ def _resample_audio(audio: list[float], input_sample_rate: int, output_sample_ra
 
 def load_audio_versions(audio_path: Path) -> LoadedAudio:
     loader = AudioLoader(filename=str(audio_path))
-    audio_stereo, original_sample_rate, _, _, _, _ = loader()
+    audio_stereo, original_sample_rate, number_channels, _, _, _ = loader()
 
     mono_mixer = MonoMixer()
-    audio_mono = mono_mixer(audio_stereo)
+    audio_mono = mono_mixer(audio_stereo, number_channels)
 
     audio_44_1khz = _resample_audio(audio_mono, original_sample_rate, 44100)
     audio_16khz = _resample_audio(audio_mono, original_sample_rate, 16000)
@@ -85,6 +93,7 @@ def load_audio_versions(audio_path: Path) -> LoadedAudio:
     return LoadedAudio(
         path=audio_path,
         original_sample_rate=original_sample_rate,
+        number_channels=number_channels,
         audio_stereo=audio_stereo,
         audio_mono=audio_mono,
         audio_44_1khz=audio_44_1khz,
@@ -127,6 +136,47 @@ def analyze_folder(root_folder: Path) -> list[dict]:
     return results
 
 
+def _csv_fieldnames(rows: list[dict]) -> list[str]:
+    fieldnames: list[str] = []
+
+    for row in rows:
+        for key in row:
+            if key not in fieldnames:
+                fieldnames.append(key)
+
+    return fieldnames
+
+
+def _serialize_csv_value(value):
+    if isinstance(value, (dict, list, tuple)):
+        return json.dumps(value)
+    return value
+
+
+def export_results_to_csv(results: list[dict], output_csv: Path | None) -> None:
+    fieldnames = _csv_fieldnames(results)
+
+    if output_csv is None:
+        writer = csv.DictWriter(sys.stdout, fieldnames=fieldnames)
+        if fieldnames:
+            writer.writeheader()
+            for row in results:
+                writer.writerow({key: _serialize_csv_value(value) for key, value in row.items()})
+        return
+
+    output_csv = output_csv.expanduser().resolve()
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
+
+    with output_csv.open("w", newline="", encoding="utf-8") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        if fieldnames:
+            writer.writeheader()
+            for row in results:
+                writer.writerow({key: _serialize_csv_value(value) for key, value in row.items()})
+
+    print(f"Saved CSV for {len(results)} audio file(s) to {output_csv}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Recursively analyze audio files inside a folder."
@@ -135,6 +185,12 @@ def parse_args() -> argparse.Namespace:
         "input_folder",
         type=Path,
         help="Folder that contains the audio files to process recursively.",
+    )
+    parser.add_argument(
+        "output_csv",
+        nargs="?",
+        type=Path,
+        help="Optional CSV output path. If omitted, the CSV is printed to stdout.",
     )
     return parser.parse_args()
 
@@ -150,7 +206,7 @@ def main() -> None:
         raise NotADirectoryError(f"Input path is not a folder: {input_folder}")
 
     results = analyze_folder(input_folder)
-    print(f"Processed {len(results)} audio file(s) from {input_folder}")
+    export_results_to_csv(results, args.output_csv)
 
 
 if __name__ == "__main__":
