@@ -1,0 +1,3 @@
+essentia
+laion-clap
+tqdm
