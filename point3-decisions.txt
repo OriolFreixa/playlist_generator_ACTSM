@@ -1,0 +1,17 @@
+Point 3 implementation decisions
+
+1. Genre and subgenre selector split
+- The original Discogs style labels are stored as `Genre---Subgenre`, but the interface now exposes them as two linked selectors: one for parent genres and one for subgenres.
+- This keeps the UI easier to browse while still preserving the original style labels internally for filtering and ranking.
+
+2. Genre-only behavior
+- When the user selects one or more genres without choosing subgenres, the app treats each genre activation as the maximum activation among all of its subgenres.
+- This keeps genre filtering and ranking on the same 0 to 1 activation scale as the original model outputs.
+
+3. Subgenre selection behavior
+- When the user selects subgenres, the app combines them with OR logic inside each genre instead of requiring all selected subgenres to be active at once.
+- In practice, this means a track matches a selected genre if any of the chosen subgenres for that genre falls inside the selected activation range.
+
+4. Reuse between filter and rank sections
+- The filter and rank sections share the same genre/subgenre selector logic.
+- This avoids duplicated UI behavior and keeps the semantics consistent across selection and ranking.

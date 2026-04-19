@@ -41,6 +41,146 @@ def format_track_label(path_value):
     return f"{path.name} ({path.parent.name}/{path.parent.parent.name})"
 
 
+def split_style_label(style_label):
+    if "---" not in style_label:
+        return style_label, style_label
+    return style_label.split("---", maxsplit=1)
+
+
+def build_style_taxonomy(style_columns):
+    taxonomy = {}
+    for style_label in style_columns:
+        genre, subgenre = split_style_label(style_label)
+        taxonomy.setdefault(genre, {})[subgenre] = style_label
+    return taxonomy
+
+
+def genre_activation_frame(dataframe, style_taxonomy, genres):
+    activations = {}
+    for genre in genres:
+        genre_styles = list(style_taxonomy.get(genre, {}).values())
+        if genre_styles:
+            # Genre-only filtering uses the strongest matching subgenre activation.
+            activations[genre] = dataframe[genre_styles].max(axis=1)
+    return pandas.DataFrame(activations, index=dataframe.index)
+
+
+def selected_subgenre_activation_frame(dataframe, style_taxonomy, genres, subgenres):
+    activations = {}
+    for genre in genres:
+        matching_styles = [
+            style_taxonomy[genre][subgenre]
+            for subgenre in subgenres
+            if subgenre in style_taxonomy.get(genre, {})
+        ]
+        if matching_styles:
+            # Within one genre, selected subgenres behave as an OR filter.
+            activations[genre] = dataframe[matching_styles].max(axis=1)
+    return pandas.DataFrame(activations, index=dataframe.index)
+
+
+def style_selection_state(dataframe, style_taxonomy, genres, subgenres):
+    selected_style_labels = [
+        style_taxonomy[genre][subgenre]
+        for genre in genres
+        for subgenre in subgenres
+        if subgenre in style_taxonomy.get(genre, {})
+    ]
+    selected_genre_activations = genre_activation_frame(dataframe, style_taxonomy, genres)
+    selected_subgenre_activations = selected_subgenre_activation_frame(
+        dataframe,
+        style_taxonomy,
+        genres,
+        subgenres,
+    )
+    return {
+        "genres": genres,
+        "subgenres": subgenres,
+        "style_labels": selected_style_labels,
+        "genre_activations": selected_genre_activations,
+        "subgenre_activations": selected_subgenre_activations,
+    }
+
+
+def render_style_selector(
+    dataframe,
+    style_stats,
+    style_taxonomy,
+    widget_prefix,
+    label_prefix,
+    include_range=False,
+):
+    genre_options = sorted(style_taxonomy)
+    selected_genres = st.multiselect(
+        f"{label_prefix} genre:",
+        genre_options,
+        key=f"{widget_prefix}_genres",
+    )
+    available_subgenres = sorted(
+        {
+            subgenre
+            for genre in selected_genres
+            for subgenre in style_taxonomy.get(genre, {})
+        }
+    )
+    selected_subgenres = st.multiselect(
+        f"{label_prefix} subgenre:",
+        available_subgenres,
+        disabled=not selected_genres,
+        help="Choose one or more genres first to narrow the subgenre list.",
+        key=f"{widget_prefix}_subgenres",
+    )
+
+    selection = style_selection_state(
+        dataframe,
+        style_taxonomy,
+        selected_genres,
+        selected_subgenres,
+    )
+
+    if include_range:
+        selection["range"] = None
+        if selection["style_labels"]:
+            with st.expander("Selected style statistics", expanded=True):
+                st.write(selection["subgenre_activations"].describe())
+            style_select_str = ", ".join(
+                f"{genre} / {subgenre}"
+                for genre, subgenre in (
+                    split_style_label(style) for style in selection["style_labels"]
+                )
+            )
+            selection["range"] = st.slider(
+                f"Select tracks with any of `{style_select_str}` activations within range:",
+                min_value=0.0,
+                max_value=1.0,
+                value=[0.5, 1.0],
+                help="Within each selected genre, a track matches if any selected subgenre falls in the range.",
+                key=f"{widget_prefix}_range",
+            )
+        elif selection["genres"]:
+            with st.expander("Selected genre statistics", expanded=True):
+                st.write(selection["genre_activations"].describe())
+            genre_select_str = ", ".join(selection["genres"])
+            selection["range"] = st.slider(
+                f"Select tracks with `{genre_select_str}` genre activations within range:",
+                min_value=0.0,
+                max_value=1.0,
+                value=[0.5, 1.0],
+                help="Genre-only filtering uses the highest subgenre activation inside each selected genre.",
+                key=f"{widget_prefix}_range",
+            )
+
+    return selection
+
+
+def selected_style_rank_frame(selection):
+    if selection["style_labels"]:
+        return selection["subgenre_activations"], "subgenre"
+    if selection["genres"]:
+        return selection["genre_activations"], "genre"
+    return pandas.DataFrame(index=[]), None
+
+
 def numeric_series(dataframe, column_name):
     return pandas.to_numeric(dataframe[column_name], errors="coerce").dropna()
 
@@ -187,24 +327,21 @@ st.write(f"Using analysis data from `{analysis_source}`.")
 st.write("Loaded audio analysis for", len(audio_analysis), "tracks.")
 
 style_stats = audio_analysis[audio_analysis_styles]
+style_taxonomy = build_style_taxonomy(audio_analysis_styles)
 
 st.write("## 🔍 Select")
 st.write("### By style")
 with st.expander("Style activation statistics"):
     st.write(style_stats.describe())
 
-style_select = st.multiselect("Select by style activations:", audio_analysis_styles)
-style_select_range = None
-if style_select:
-    with st.expander("Selected style statistics", expanded=True):
-        st.write(style_stats[style_select].describe())
-    style_select_str = ", ".join(style_select)
-    style_select_range = st.slider(
-        f"Select tracks with `{style_select_str}` activations within range:",
-        min_value=0.0,
-        max_value=1.0,
-        value=[0.5, 1.0],
-    )
+filter_style_selection = render_style_selector(
+    audio_analysis,
+    style_stats,
+    style_taxonomy,
+    "filter_style",
+    "Filter by",
+    include_range=True,
+)
 
 numeric_filter_columns = [column for column in ["tempo_bpm", "loudness_lufs"] if column in audio_analysis.columns]
 if numeric_filter_columns:
@@ -245,10 +382,12 @@ if {"key", "scale"}.issubset(audio_analysis.columns):
     selected_keys = st.multiselect(f"Key ({KEY_PROFILE})", key_options)
 
 st.write("## 🔝 Rank")
-style_rank = st.multiselect(
-    "Rank by style activations (multiplies activations for selected styles):",
-    audio_analysis_styles,
-    [],
+rank_style_selection = render_style_selector(
+    audio_analysis,
+    style_stats,
+    style_taxonomy,
+    "rank_style",
+    "Rank by",
 )
 
 extra_rank_options = [
@@ -276,12 +415,22 @@ if st.button("RUN"):
     st.write("## 🔊 Results")
     result = audio_analysis.copy()
 
-    if style_select and style_select_range:
-        for style in style_select:
+    if filter_style_selection["style_labels"] and filter_style_selection["range"]:
+        for genre in filter_style_selection["subgenre_activations"].columns:
+            subgenre_scores = filter_style_selection["subgenre_activations"].loc[result.index, genre]
             result = result.loc[
-                (result[style] >= style_select_range[0]) & (result[style] <= style_select_range[1])
+                (subgenre_scores >= filter_style_selection["range"][0])
+                & (subgenre_scores <= filter_style_selection["range"][1])
             ]
-        st.write("Applied style filters.")
+        st.write("Applied subgenre filters.")
+    elif filter_style_selection["genres"] and filter_style_selection["range"] is not None:
+        for genre in filter_style_selection["genres"]:
+            genre_scores = filter_style_selection["genre_activations"].loc[result.index, genre]
+            result = result.loc[
+                (genre_scores >= filter_style_selection["range"][0])
+                & (genre_scores <= filter_style_selection["range"][1])
+            ]
+        st.write("Applied genre filters.")
 
     if tempo_range:
         result = result.loc[
@@ -312,18 +461,20 @@ if st.button("RUN"):
             f"`{KEY_PROFILE}` profile: {', '.join(selected_keys)}."
         )
 
-    if style_rank:
+    rank_frame, rank_mode = selected_style_rank_frame(rank_style_selection)
+    if rank_mode:
         result = result.copy()
-        result["RANK"] = result[style_rank[0]]
-        for style in style_rank[1:]:
-            result["RANK"] *= result[style]
+        rank_columns = list(rank_frame.columns)
+        result["RANK"] = rank_frame.loc[result.index, rank_columns[0]]
+        for rank_column in rank_columns[1:]:
+            result["RANK"] *= rank_frame.loc[result.index, rank_column]
         sort_columns = ["RANK"]
         ascending = [False]
         if numeric_rank != "none":
             sort_columns.append(numeric_rank)
             ascending.append(not numeric_rank_desc)
         result = result.sort_values(sort_columns, ascending=ascending)
-        st.write("Applied ranking by audio style predictions.")
+        st.write(f"Applied ranking by {rank_mode} activations.")
     elif numeric_rank != "none":
         result = result.sort_values(numeric_rank, ascending=not numeric_rank_desc)
         st.write(f"Sorted by `{numeric_rank}`.")
