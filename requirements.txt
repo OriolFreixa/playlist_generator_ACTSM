@@ -1,5 +1,9 @@
 essentia-tensorflow
 laion-clap
+matplotlib
+numpy
+pandas
+seaborn
 torch
 torchaudio
 torchvision

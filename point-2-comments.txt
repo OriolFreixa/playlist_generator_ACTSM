@@ -1,0 +1,70 @@
+Point 2 comments
+
+Overall diversity
+
+The collection is clearly diverse, but not uniformly balanced.
+
+- In terms of music styles, the collection covers 15 broad parent genres and 290 predicted styles out of the 400 available style labels.
+- The style spread is broad: the most common individual style is only 3.9% of the tracks (`Rock---Alternative Rock`), which suggests there is no single dominant niche.
+- At the same time, the collection is still concentrated around contemporary popular repertoires. The three biggest parent genres are Rock (26.1%), Electronic (22.0%), and Hip Hop (12.9%), which already account for 61.1% of the tracks. Adding Folk/World/Country and Pop brings the top 5 broad genres to 78.2%.
+- So, stylistically, I would describe the collection as diverse overall, but with a clear bias toward popular, beat-driven genres rather than a fully even genre distribution.
+
+Tempo and danceability
+
+- The tempo distribution is also fairly broad: BPM ranges from 60.2 to 184.6, with a median of 119.8 BPM and an interquartile range from 97.5 to 136.1 BPM.
+- This means the collection spans slow, medium, and fast tracks, but it is centered around mid-tempo to upbeat music, which fits the strong presence of Rock, Electronic, Hip Hop, and Pop.
+- Danceability is slightly tilted toward danceable material: 56.8% of tracks are classified as `danceable` and 43.2% as `not_danceable`.
+- Taken together, the collection is not tempo-homogeneous, but it does lean toward energetic and rhythmically regular music.
+
+Tonality and key/scale estimation
+
+- Tonally, the collection is also broad: all 24 possible key/scale combinations appear in each profile.
+- However, the three key estimators do not fully agree. All three profiles agree on the exact same key and scale for 49.1% of the tracks.
+- Pairwise agreement shows that `krumhansl` and `edma` are much closer to each other than to `temperley`:
+  - `temperley` vs `krumhansl`: 57.9%
+  - `temperley` vs `edma`: 51.9%
+  - `krumhansl` vs `edma`: 82.0%
+
+Differences between profiles
+
+- `temperley` is much more major-oriented: 75.7% major vs 24.3% minor.
+- `krumhansl` is more balanced: 59.1% major vs 40.9% minor.
+- `edma` is almost perfectly balanced: 50.4% major vs 49.6% minor.
+- This suggests that `temperley` tends to favor major interpretations more aggressively, while `krumhansl` and `edma` detect minor tonalities more often.
+- The mean confidence (`strength`) is also slightly lower for `temperley` (0.756) than for `krumhansl` (0.816) and `edma` (0.826).
+
+If we had to present only one profile to users, I would choose `krumhansl`.
+
+Why `krumhansl`
+
+- It is much closer to `edma` than `temperley` is, so it aligns with the stronger two-profile consensus.
+- It avoids the strong major bias of `temperley`.
+- Its average confidence is high and very close to `edma`.
+- Compared with `edma`, it is a slightly more conservative middle-ground choice, which makes it a good single-profile summary for users.
+
+So my recommendation would be:
+- use `krumhansl` as the main key/scale display
+- mention somewhere that automatic key estimation is uncertain, since exact three-way agreement is only about half of the dataset
+
+Loudness
+
+- The integrated loudness distribution looks reasonable for a mixed modern music collection.
+- The average loudness is -10.93 LUFS, with a median of -10.19 LUFS.
+- The middle 50% of tracks lie between -13.24 LUFS and -8.23 LUFS, and the full range goes from -19.97 LUFS to -4.98 LUFS.
+
+This distribution makes sense:
+
+- The center of the distribution is close to the modern-mastering range often seen in released music. The reference article mentions that many masters are around -10 LUFS, which is very close to this collection average.
+- The louder edge of the dataset (around -5 LUFS) is extremely loud and likely corresponds to more compressed, aggressive productions.
+- The quieter edge (around -20 LUFS) is much more dynamic and is plausible for softer, more open, or less heavily mastered material.
+- Since streaming platforms often normalize playback around -14 LUFS, a large part of this collection is mastered hotter than streaming targets, but that is common in real-world releases.
+
+Overall loudness conclusion
+
+- Yes, the loudness distribution makes sense.
+- It reflects a realistic mixture of modern mastered tracks rather than a tightly standardized archive.
+- The collection is somewhat loud on average, which matches the strong presence of contemporary popular genres.
+
+Final conclusion
+
+The collection is diverse across styles, tempo, tonality, and vocal/instrumental content, but it is not evenly distributed. It is best described as a broad popular-music collection with clear concentration in Rock, Electronic, Hip Hop, and other contemporary genres. Tonal diversity is high, but key estimation depends noticeably on the chosen profile. For presentation purposes, `krumhansl` is the best single-profile choice, while loudness values look realistic for modern mastered music.
