@@ -166,12 +166,15 @@ INPUT /usr/local/texlive/2026basic/texmf-dist/tex/latex/lm/omxlmex.fd
 INPUT /usr/local/texlive/2026basic/texmf-dist/tex/latex/lm/omxlmex.fd
 INPUT /usr/local/texlive/2026basic/texmf-dist/tex/latex/lm/omxlmex.fd
 INPUT /usr/local/texlive/2026basic/texmf-dist/fonts/tfm/public/lm/lmex10.tfm
-INPUT /usr/local/texlive/2026basic/texmf-dist/fonts/tfm/public/lm/ec-lmr12.tfm
-INPUT /usr/local/texlive/2026basic/texmf-dist/fonts/tfm/public/lm/ec-lmbx12.tfm
 INPUT /usr/local/texlive/2026basic/texmf-dist/tex/latex/lm/t1lmtt.fd
 INPUT /usr/local/texlive/2026basic/texmf-dist/tex/latex/lm/t1lmtt.fd
 INPUT /usr/local/texlive/2026basic/texmf-dist/tex/latex/lm/t1lmtt.fd
 INPUT /usr/local/texlive/2026basic/texmf-dist/fonts/tfm/public/lm/ec-lmtt10.tfm
+INPUT /usr/local/texlive/2026basic/texmf-dist/fonts/tfm/public/lm/rm-lmr10.tfm
+INPUT /usr/local/texlive/2026basic/texmf-dist/fonts/tfm/public/lm/lmmi10.tfm
+INPUT /usr/local/texlive/2026basic/texmf-dist/fonts/tfm/public/lm/lmsy10.tfm
+INPUT /usr/local/texlive/2026basic/texmf-dist/fonts/tfm/public/lm/ec-lmr12.tfm
+INPUT /usr/local/texlive/2026basic/texmf-dist/fonts/tfm/public/lm/ec-lmbx12.tfm
 INPUT /usr/local/texlive/2026basic/texmf-var/fonts/map/pdftex/updmap/pdftex.map
 INPUT /usr/local/texlive/2026basic/texmf-dist/fonts/enc/dvips/lm/lm-ec.enc
 INPUT report.aux
