@@ -1,5 +1,4 @@
 import json
-import random
 from pathlib import Path
 
 import numpy
@@ -8,12 +7,16 @@ import streamlit as st
 
 
 DATA_PATH = Path("../outputs/full.csv")
-PLAYLIST_PATH = Path("playlists/streamlit_similarity.m3u8")
+PLAYLIST_PATHS = {
+    "Discogs-Effnet (1280 dims)": Path("playlists/streamlit_similarity_discogs.m3u8"),
+    "LAION-CLAP (512 dims)": Path("playlists/streamlit_similarity_clap.m3u8"),
+}
 KEY_PROFILE = "krumhansl"
 EMBEDDING_OPTIONS = {
     "LAION-CLAP (512 dims)": "clap_embeddings",
     "Discogs-Effnet (1280 dims)": "discogs_effnet_embeddings",
 }
+TOP_K = 10
 
 
 def parse_json_dict(value):
@@ -161,8 +164,8 @@ def similarity_ranking(metadata, normalized_matrix, seed_paths, exclude_seed_tra
 st.set_page_config(page_title="Track Similarity Playlists", layout="wide")
 st.title("Playlists Based on Track Similarity")
 st.write(
-    "Build playlists from one or more seed tracks using the embeddings exported in "
-    f"`{DATA_PATH}`."
+    "Select one query track and compare the top 10 neighbors returned by "
+    "Discogs-Effnet and LAION-CLAP side by side."
 )
 
 if not DATA_PATH.exists():
@@ -172,17 +175,8 @@ if not DATA_PATH.exists():
 metadata, normalized_embeddings = load_similarity_dataset()
 st.write(f"Loaded analysis for {len(metadata)} tracks.")
 
-embedding_label = st.selectbox(
-    "Embedding space:",
-    list(EMBEDDING_OPTIONS),
-    help=(
-        "CLAP is usually broader and more semantic. Discogs-Effnet tends to focus more "
-        "on audio/style similarity."
-    ),
-)
-
 search_query = st.text_input(
-    "Search tracks to use as seeds:",
+    "Search the query track:",
     placeholder="Type an artist id, filename, style, or key...",
 )
 filtered_metadata = metadata
@@ -193,15 +187,17 @@ if search_query:
 
 st.caption(f"{len(filtered_metadata)} track options match the current search.")
 
-seed_tracks = st.multiselect(
-    "Seed tracks:",
-    filtered_metadata.index.tolist(),
+seed_options = filtered_metadata.index.tolist()
+seed_track = st.selectbox(
+    "Query track:",
+    seed_options,
     format_func=format_track_label,
-    help="Choose one or more tracks. If you select several, the app averages their embeddings.",
+    index=None,
+    placeholder="Choose one track to compare both embedding spaces.",
 )
 
 similarity_floor = st.slider(
-    "Minimum cosine similarity:",
+    "Minimum cosine similarity for both lists:",
     min_value=-1.0,
     max_value=1.0,
     value=0.0,
@@ -209,82 +205,78 @@ similarity_floor = st.slider(
 )
 exclude_seed_tracks = st.checkbox("Exclude the seed tracks from the results", value=True)
 
-st.write("## Post-process")
-max_tracks = st.number_input("Maximum number of tracks for the playlist (0 for all):", value=25)
-display_limit = st.number_input("Rows to show in the results table:", min_value=5, value=25)
-preview_count = st.number_input("Audio previews to render:", min_value=1, max_value=20, value=10)
-shuffle = st.checkbox("Random shuffle after ranking", value=False)
-
 if st.button("RUN"):
-    if not seed_tracks:
-        st.warning("Select at least one seed track to generate a playlist.")
+    if not seed_track:
+        st.warning("Select one query track to generate the comparison.")
         st.stop()
 
-    ranked, centroid = similarity_ranking(
-        metadata,
-        normalized_embeddings[embedding_label],
-        seed_tracks,
-        exclude_seed_tracks,
-    )
-    result = ranked.loc[ranked["similarity"] >= similarity_floor].copy()
-
-    st.write("## Seed tracks")
+    st.write("## Query track")
     st.dataframe(
-        format_results_table(metadata.loc[seed_tracks].assign(similarity=1.0)),
+        format_results_table(metadata.loc[[seed_track]].assign(similarity=1.0)),
         use_container_width=True,
         hide_index=True,
     )
+    st.audio(seed_track, format="audio/mp3", start_time=0)
 
-    if result.empty:
+    comparison_results = {}
+    centroids = {}
+    for embedding_label, normalized_matrix in normalized_embeddings.items():
+        ranked, centroid = similarity_ranking(
+            metadata,
+            normalized_matrix,
+            [seed_track],
+            exclude_seed_tracks,
+        )
+        result = ranked.loc[ranked["similarity"] >= similarity_floor].head(TOP_K).copy()
+        comparison_results[embedding_label] = result
+        centroids[embedding_label] = centroid
+
+    if all(result.empty for result in comparison_results.values()):
         st.warning("No tracks matched the current similarity threshold.")
         st.stop()
 
-    if shuffle:
-        shuffled = result.copy()
-        shuffled["_random"] = [random.random() for _ in range(len(shuffled))]
-        result = shuffled.sort_values(["_random", "similarity"], ascending=[True, False]).drop(
-            columns="_random"
-        )
+    for embedding_label, export_result in comparison_results.items():
+        playlist_path = PLAYLIST_PATHS[embedding_label]
+        playlist_path.parent.mkdir(parents=True, exist_ok=True)
+        playlist_path.write_text("\n".join(export_result.index.tolist()) + "\n")
 
-    export_result = result
-    if max_tracks:
-        export_result = result.head(int(max_tracks)).copy()
+    st.write("## Top-10 comparison")
+    left_column, right_column = st.columns(2)
+    for column, embedding_label in zip(
+        [left_column, right_column],
+        ["Discogs-Effnet (1280 dims)", "LAION-CLAP (512 dims)"],
+        strict=True,
+    ):
+        result = comparison_results[embedding_label]
+        centroid = centroids[embedding_label]
 
-    PLAYLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
-    PLAYLIST_PATH.write_text("\n".join(export_result.index.tolist()) + "\n")
+        with column:
+            st.write(f"### {embedding_label}")
+            if result.empty:
+                st.warning("No tracks matched the current threshold for this embedding.")
+                continue
 
-    st.write("## Results")
-    summary_columns = st.columns(4)
-    summary_columns[0].metric("Matched tracks", len(result))
-    summary_columns[1].metric("Playlist size", len(export_result))
-    summary_columns[2].metric("Best similarity", f"{result['similarity'].iloc[0]:.4f}")
-    summary_columns[3].metric(
-        "Mean similarity",
-        f"{result['similarity'].mean():.4f}",
-    )
+            summary_columns = st.columns(3)
+            summary_columns[0].metric("Tracks shown", len(result))
+            summary_columns[1].metric("Best similarity", f"{result['similarity'].iloc[0]:.4f}")
+            summary_columns[2].metric("Mean similarity", f"{result['similarity'].mean():.4f}")
 
-    st.caption(
-        "The ranking uses cosine similarity to the mean embedding of the selected seed tracks. "
-        f"The current centroid norm is `{numpy.linalg.norm(centroid):.4f}`."
-    )
-    st.write(f"Stored M3U playlist to `{PLAYLIST_PATH}`.")
+            st.caption(
+                "Cosine similarity to the query-track embedding. "
+                f"Centroid norm: `{numpy.linalg.norm(centroid):.4f}`."
+            )
+            st.write(f"Stored M3U playlist to `{PLAYLIST_PATHS[embedding_label]}`.")
 
-    st.dataframe(
-        format_results_table(result.head(int(display_limit))),
-        use_container_width=True,
-        hide_index=True,
-    )
+            st.dataframe(
+                format_results_table(result),
+                use_container_width=True,
+                hide_index=True,
+            )
 
-    st.write("## Audio previews")
-    st.write("### Seed tracks")
-    for track_path in seed_tracks[: int(preview_count)]:
-        st.write(format_track_label(track_path))
-        st.audio(track_path, format="audio/mp3", start_time=0)
-
-    st.write("### Top matches")
-    for track_path in export_result.index[: int(preview_count)]:
-        st.write(
-            f"{format_track_label(track_path)} "
-            f"(similarity: {export_result.loc[track_path, 'similarity']:.4f})"
-        )
-        st.audio(track_path, format="audio/mp3", start_time=0)
+            st.write("#### Audio previews")
+            for track_path in result.index:
+                st.write(
+                    f"{format_track_label(track_path)} "
+                    f"(similarity: {result.loc[track_path, 'similarity']:.4f})"
+                )
+                st.audio(track_path, format="audio/mp3", start_time=0)

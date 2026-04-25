@@ -108,6 +108,9 @@ The script will:
 - show a progress bar in the terminal
 - print CSV to `stdout` if no output path is provided
 - save the CSV if an output path is given
+- resume from an existing output CSV by skipping tracks whose `path` is already present
+- append each completed track immediately so interrupted runs can be resumed
+- skip files that fail during analysis and continue with the rest of the collection
 
 ## Supported audio formats
 

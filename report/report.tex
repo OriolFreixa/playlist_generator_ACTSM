@@ -1,0 +1,66 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[a4paper,margin=0.85in]{geometry}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{parskip}
+\setlist{nosep,leftmargin=*}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  citecolor=blue,
+  pdftitle={ACTSM Playlist Assignment Report},
+}
+
+\newcommand{\code}[1]{\texttt{#1}}
+
+\title{ACTSM 2026: Audio-Based Playlist Generation}
+\author{Student Name \\ Student ID}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+This report summarizes the main implementation decisions and the most relevant observations from the resulting system.
+
+\section{Audio Analysis}
+
+The analysis pipeline is implemented as a standalone script that scans a folder recursively and processes files in sorted order. To avoid repeated loading, each track is converted once into a few cached representations: stereo audio for loudness, 44.1 kHz mono for tempo and key estimation, 16 kHz mono for Discogs-Effnet and the classifier models, and 48 kHz mono for CLAP.
+
+The main practical decision was to keep the pipeline simple and reusable. I used the signal-processing method \code{RhythmExtractor2013} instead of TempoCNN because it was easier to integrate and did not require an additional model download. All time-varying outputs are reduced with mean pooling to obtain one descriptor vector per track, and structured results are stored in CSV as JSON strings. Model locations default to \code{./models/} but can also be overridden through environment variables. The script now writes results incrementally, skips files that raise analysis errors, and resumes from an existing CSV by reusing rows whose \code{path} has already been analyzed.
+
+\section{Collection Overview}
+
+For the overview, I reduced each track to a single style prediction by taking the maximum Discogs400 activation, then aggregated those labels both at full style level and at parent-genre level. The complete style counts are provided separately in \code{outputs/music\_style\_distribution.tsv}, while the report focuses on the broader parent-genre distribution for readability.
+
+The collection is clearly diverse, but not evenly distributed. It spans 15 parent genres and 290 activated styles, although the largest part of the dataset is concentrated in Rock, Electronic, and Hip Hop. Tempo is also broad, but the median of 119.8 BPM and the danceability split of 56.8\% \code{danceable} suggest a bias toward energetic and rhythmically regular tracks. The voice/instrumental classifier points in the same direction, with 71.4\% of tracks labeled as vocal.
+
+The largest ambiguity appears in key estimation. The three profiles agree exactly on only 49.1\% of the tracks, and \code{temperley} is noticeably more biased toward major keys than the other two. Because \code{krumhansl} stays much closer to \code{edma} while remaining more balanced than \code{temperley}, it is the profile I chose for the interfaces.
+
+Loudness values look reasonable for a mixed modern collection. The distribution is centered around -10 LUFS, which is believable for contemporary released music, while the full range still includes quieter and more dynamic excerpts.
+
+Some track-level examples illustrate both the strengths and the limits of the extracted features. A good example is \code{3qsVzxRJu7dffK80LTSeqw.mp3}: it is strongly classified as \code{Classical---Baroque} (0.85), predicted as instrumental, and marked as not danceable, and this combination is also correct on listening. Another convincing case is \code{5ZIpIEveuXqfiY2Jbnnz3k.mp3}. Its House / Garage House / Deep House labels, vocal prediction, high danceability, and relatively loud level at -8.6 LUFS all fit the track well. A more ambiguous example is \code{4CW7TDOyYikKAWjf4w6ab3.mp3}, where \code{Children's---Nursery Rhymes} appears as a strong secondary style below \code{Pop---Kay\={o}kyoku}; this is plausible in some cases, but it also shows how family-oriented and theatrical material can overlap in the style space. Likewise, \code{5eJJOdNwwqCOChRnamKor3.mp3} is much better described by Stage \& Screen labels than by the broader Children ranking it can receive in playlist exploration, which suggests that low-confidence genre regions should be treated more carefully than the stronger high-confidence matches.
+
+\section{Playlist Generation}
+
+The system includes three Streamlit apps: descriptor-based filtering, similarity from seed tracks, and freeform text queries. In the descriptor interface, the main UI decision was to split Discogs labels into parent genres and subgenres instead of exposing the full 400-style list directly. This made browsing easier and kept the same logic for both filtering and ranking. Tempo, loudness, danceability, voice/instrumental, and key filters were added on top of that, using \code{krumhansl} as the key profile.
+
+In listening, the descriptor filters feel most reliable when they combine a strong style cue with one extra musical constraint. The \code{classical.m3u8} playlist comes across as coherent: the tracks consistently sound closer to quiet, non-danceable classical material, and the associated Baroque, Choral, Opera, and Renaissance labels fit that impression well. Adding the loudness restriction keeps that same character while shortening the result list, whereas combining classical with a high BPM threshold becomes too restrictive and leaves only two tracks. The electronic query behaves much more robustly in the opposite direction: \code{electronic.m3u8} mostly sounds loud, energetic, and dance-oriented, which matches the kind of playlist the interface is supposed to produce. The clearest failure case is the Children selector: with a hard threshold it returns only one convincing item, but when used for ranking it quickly drifts toward story, soundtrack, parody, and pop-adjacent material. In practice, that label feels more useful as a soft ranking hint than as a strict filter.
+
+For similarity, both Discogs-Effnet and CLAP use mean-pooled embeddings and cosine similarity, but in listening the Discogs-Effnet results were consistently stronger for the seeds I tested. For \code{02KPo7DqVnSTSZnKvdT5NU}, \code{2HYSaMUZMt7pBWB3BZaQ8c}, and \code{5taQsLHbUf8WvzcBnUEpxe.mp3}, the Discogs playlists sounded more convincing and stylistically closer to the query track, while the CLAP results felt broader and less focused. This was especially clear for \code{5taQsLHbUf8WvzcBnUEpxe.mp3}, where Discogs was noticeably better. An interesting detail is that Discogs often produced lower cosine similarities than CLAP, but the retrieved tracks still sounded better. My impression is that this happens because the Discogs-Effnet space is more style-specific and probably benefits from its higher dimensionality, whereas CLAP is better at capturing broader semantic relatedness than close musical similarity.
+
+The freeform text-query app relies on CLAP and includes an optional negative prompt, which is useful for pushing the ranking away from unwanted concepts. After trying prompts such as \code{80s inspired hip hop track}, \code{rebellious youth chasing dreams}, and \code{galactic dreams}, my impression is that the interface works best for broad mood or concept exploration rather than for precise control. The most concrete prompt, \code{80s inspired hip hop track}, produced the clearest and easiest-to-interpret results, while the more narrative or atmospheric prompts returned broader and more mixed playlists. In general, the retrieved tracks often feel semantically related to the text, but they are less precise than direct descriptor filtering, which makes some weaker or more surprising matches inevitable. My overall impression is that descriptor queries are the most controllable interface, Discogs-Effnet gives the strongest similarity neighborhoods, and CLAP is most useful when the user wants to search with a loose verbal description rather than an exact musical constraint.
+
+\end{document}

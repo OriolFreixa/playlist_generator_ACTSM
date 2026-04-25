@@ -17,5 +17,6 @@ Run the similarity playlist app:
 ./run.sh
 ```
 
-The app reads `../outputs/full.csv` and writes generated playlists to
-`playlists/streamlit_similarity.m3u8`.
+The app reads `../outputs/full.csv` and writes two comparison playlists to
+`playlists/streamlit_similarity_discogs.m3u8` and
+`playlists/streamlit_similarity_clap.m3u8`.

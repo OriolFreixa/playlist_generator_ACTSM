@@ -31,6 +31,19 @@ AUDIO_EXTENSIONS = {
     ".wma",
 }
 
+OUTPUT_FIELDNAMES = [
+    "path",
+    "original_sample_rate",
+    "tempo_bpm",
+    "key",
+    "loudness_lufs",
+    "discogs_effnet_embeddings",
+    "music_styles",
+    "voice_instrumental",
+    "danceability",
+    "clap_embeddings",
+]
+
 
 def _load_feature_extraction_module():
     module_path = Path(__file__).with_name("feature-extraction.py")
@@ -124,57 +137,110 @@ def extract_features(loaded_audio: LoadedAudio) -> dict:
     return features
 
 
-def analyze_folder(root_folder: Path) -> list[dict]:
-    audio_files = list(iter_audio_files(root_folder))
-    results = []
-
-    for audio_path in tqdm(audio_files, desc="Analyzing audio", unit="file"):
-        loaded_audio = load_audio_versions(audio_path)
-        features = extract_features(loaded_audio)
-        results.append(features)
-
-    return results
-
-
-def _csv_fieldnames(rows: list[dict]) -> list[str]:
-    fieldnames: list[str] = []
-
-    for row in rows:
-        for key in row:
-            if key not in fieldnames:
-                fieldnames.append(key)
-
-    return fieldnames
-
-
 def _serialize_csv_value(value):
     if isinstance(value, (dict, list, tuple)):
         return json.dumps(value)
     return value
 
 
-def export_results_to_csv(results: list[dict], output_csv: Path | None) -> None:
-    fieldnames = _csv_fieldnames(results)
+def _serialized_row(row: dict) -> dict[str, object]:
+    return {
+        key: _serialize_csv_value(row.get(key))
+        for key in OUTPUT_FIELDNAMES
+    }
+
+
+def _load_completed_paths(output_csv: Path) -> set[str]:
+    if not output_csv.exists():
+        return set()
+
+    with output_csv.open("r", newline="", encoding="utf-8") as csv_file:
+        reader = csv.DictReader(csv_file)
+        if "path" not in (reader.fieldnames or []):
+            raise ValueError(
+                f"Cannot resume from {output_csv}: missing required 'path' column."
+            )
+
+        return {
+            str(row["path"]).strip()
+            for row in reader
+            if row.get("path")
+        }
+
+
+def analyze_folder(root_folder: Path, output_csv: Path | None) -> None:
+    audio_files = list(iter_audio_files(root_folder))
+    completed_paths: set[str] = set()
+    analyzed_count = 0
+    skipped_existing_count = 0
+    failed_count = 0
 
     if output_csv is None:
-        writer = csv.DictWriter(sys.stdout, fieldnames=fieldnames)
-        if fieldnames:
-            writer.writeheader()
-            for row in results:
-                writer.writerow({key: _serialize_csv_value(value) for key, value in row.items()})
+        writer = csv.DictWriter(sys.stdout, fieldnames=OUTPUT_FIELDNAMES)
+        writer.writeheader()
+
+        for audio_path in tqdm(audio_files, desc="Analyzing audio", unit="file"):
+            try:
+                loaded_audio = load_audio_versions(audio_path)
+                features = extract_features(loaded_audio)
+            except Exception as exc:
+                failed_count += 1
+                print(f"Skipping {audio_path}: {exc}", file=sys.stderr)
+                continue
+
+            writer.writerow(_serialized_row(features))
+            analyzed_count += 1
+
+        print(
+            f"Finished analysis: wrote {analyzed_count} row(s), skipped {failed_count} failed file(s).",
+            file=sys.stderr,
+        )
         return
 
     output_csv = output_csv.expanduser().resolve()
     output_csv.parent.mkdir(parents=True, exist_ok=True)
+    completed_paths = _load_completed_paths(output_csv)
+    skipped_existing_count = len(completed_paths)
 
-    with output_csv.open("w", newline="", encoding="utf-8") as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-        if fieldnames:
-            writer.writeheader()
-            for row in results:
-                writer.writerow({key: _serialize_csv_value(value) for key, value in row.items()})
+    write_header = not output_csv.exists() or output_csv.stat().st_size == 0
 
-    print(f"Saved CSV for {len(results)} audio file(s) to {output_csv}")
+    try:
+        with output_csv.open("a", newline="", encoding="utf-8") as csv_file:
+            writer = csv.DictWriter(csv_file, fieldnames=OUTPUT_FIELDNAMES)
+            if write_header:
+                writer.writeheader()
+
+            for audio_path in tqdm(audio_files, desc="Analyzing audio", unit="file"):
+                audio_path_str = str(audio_path)
+                if audio_path_str in completed_paths:
+                    continue
+
+                try:
+                    loaded_audio = load_audio_versions(audio_path)
+                    features = extract_features(loaded_audio)
+                except Exception as exc:
+                    failed_count += 1
+                    print(f"Skipping {audio_path}: {exc}", file=sys.stderr)
+                    continue
+
+                writer.writerow(_serialized_row(features))
+                csv_file.flush()
+                completed_paths.add(audio_path_str)
+                analyzed_count += 1
+    except KeyboardInterrupt:
+        print(
+            "\nInterrupted. Partial progress was already written and can be resumed "
+            f"by rerunning with the same output path: {output_csv}",
+            file=sys.stderr,
+        )
+        raise
+
+    print(
+        "Finished analysis: "
+        f"wrote {analyzed_count} new row(s), "
+        f"reused {skipped_existing_count} existing row(s), "
+        f"skipped {failed_count} failed file(s)."
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -205,8 +271,7 @@ def main() -> None:
     if not input_folder.is_dir():
         raise NotADirectoryError(f"Input path is not a folder: {input_folder}")
 
-    results = analyze_folder(input_folder)
-    export_results_to_csv(results, args.output_csv)
+    analyze_folder(input_folder, args.output_csv)
 
 
 if __name__ == "__main__":
